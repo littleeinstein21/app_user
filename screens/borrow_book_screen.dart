@@ -1,22 +1,21 @@
-import 'package:cloud_firestore/cloud_firestore.dart'; // 💡 Import Firestore
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import '../data/dummy_books.dart'; // Asumsi: berisi List<Map<String, dynamic>> dummyBooks
-import '../widgets/book_card.dart'; // Asumsi: menerima title, author, status, dan onPressed
+import '../data/dummy_books.dart'; // <-- pastikan path benar
+import '../widgets/book_card.dart'; // <-- BookCard(title, author, status, onPressed)
 
 class BorrowBookScreen extends StatefulWidget {
-  // 💡 Tambahkan parameter untuk User ID, Nama, Email, dan Phone
   final String userId;
   final String userName;
-  final String userEmail; // Tambahkan Email
-  final String userPhone; // Tambahkan Phone
+  final String userEmail;
+  final String userPhone;
 
   const BorrowBookScreen({
     super.key,
     required this.userId,
     required this.userName,
-    required this.userEmail, // Wajib diisi
-    required this.userPhone, // Wajib diisi
+    required this.userEmail,
+    required this.userPhone,
   });
 
   @override
@@ -28,53 +27,40 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
   DateTime? selectedDate;
   String _searchQuery = "";
 
-  // 💡 Fungsi untuk mencatat transaksi peminjaman (Booking) ke Firestore
   Future<void> _recordBorrowTransaction(Map<String, dynamic> book) async {
     try {
       final firestore = FirebaseFirestore.instance;
-      // Gunakan koleksi 'borrows' untuk menyimpan transaksi pemesanan
       await firestore.collection('borrows').add({
         'userId': widget.userId,
         'userName': widget.userName,
-        // 💡 Tambahkan data kontak pengguna: Email dan Phone
         'userEmail': widget.userEmail,
         'userPhone': widget.userPhone,
-
         'bookTitle': book['title'],
         'author': book['author'],
-        'borrowDate':
-            Timestamp.fromDate(selectedDate ?? DateTime.now()), // Waktu pemesanan
-        'status': 'booked', // Status awal: dipesan
+        'borrowDate': Timestamp.fromDate(selectedDate ?? DateTime.now()),
+        'status': 'booked',
         'actionType': 'BORROW_REQUEST',
-        'lockerId': 'TBD', // To Be Determined
+        'lockerId': 'TBD',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
-      // Tampilkan notifikasi sukses
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                "✅ Berhasil memesan: ${book['title']}. Segera ambil di loker!")),
+        SnackBar(content: Text("✅ Berhasil memesan: ${book['title']}")),
       );
     } catch (e) {
       print("Error recording borrow transaction: $e");
-      // Tampilkan notifikasi error
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                "Gagal mencatat peminjaman. Coba lagi. Error: ${e.toString()}")),
+        SnackBar(content: Text("Gagal mencatat peminjaman: ${e.toString()}")),
       );
     }
   }
 
-  // Fungsi untuk mendapatkan stream data peminjaman dari Firestore
   Stream<QuerySnapshot> _getBorrowsStream() {
     return FirebaseFirestore.instance.collection('borrows').snapshots();
   }
 
   @override
   Widget build(BuildContext context) {
-    // Filter buku berdasarkan kueri pencarian
     final filteredBooks = dummyBooks
         .where((book) =>
             book["title"].toLowerCase().contains(_searchQuery.toLowerCase()))
@@ -106,7 +92,6 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            // 💡 Gunakan StreamBuilder untuk mendengarkan status buku secara real-time
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: _getBorrowsStream(),
@@ -128,37 +113,40 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
                     for (var doc in snapshot.data!.docs) {
                       final data = doc.data() as Map<String, dynamic>;
                       final status = data['status'] as String?;
+                      final title = data['bookTitle'] as String?;
 
-                      // Buku dianggap TIDAK tersedia jika status BUKAN 'returned' atau 'cancelled'
-                      if (status != 'returned' && status != 'cancelled') {
-                        final title = data['bookTitle'] as String?;
-                        if (title != null) {
-                          unavailableTitles.add(title);
-                        }
+                      if (title != null &&
+                          status != 'returned' &&
+                          status != 'cancelled') {
+                        unavailableTitles.add(title);
                       }
                     }
                   }
 
+                  // Filter buku yang tersisa (tidak di-unavailableTitles)
+                  final availableBooks = filteredBooks
+                      .where((book) =>
+                          !unavailableTitles.contains(book["title"]))
+                      .toList();
+
+                  if (availableBooks.isEmpty) {
+                    return const Center(
+                      child: Text(
+                        "📚 Tidak ada buku yang tersedia saat ini.",
+                        style: TextStyle(color: Colors.white70),
+                      ),
+                    );
+                  }
+
                   return ListView.builder(
-                    itemCount: filteredBooks.length,
+                    itemCount: availableBooks.length,
                     itemBuilder: (context, i) {
-                      final book = filteredBooks[i];
-                      final bookTitle = book["title"] as String;
-
-                      // Tentukan status ketersediaan berdasarkan data Firestore
-                      final isAvailable =
-                          !unavailableTitles.contains(bookTitle);
-                      final currentStatus =
-                          isAvailable ? 'Available' : 'Booked';
-
+                      final book = availableBooks[i];
                       return BookCard(
-                        title: bookTitle,
+                        title: book["title"],
                         author: book["author"],
-                        status: currentStatus, // Menampilkan status real-time
-                        // Nonaktifkan tombol jika buku tidak tersedia
-                        onPressed: isAvailable
-                            ? () => _selectDateAndConfirm(book)
-                            : null,
+                        status: "Available",
+                        onPressed: () => _selectDateAndConfirm(book),
                       );
                     },
                   );
@@ -171,7 +159,6 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
     );
   }
 
-  // Fungsi ini hanya dipanggil JIKA buku tersedia
   Future<void> _selectDateAndConfirm(Map<String, dynamic> book) async {
     DateTime now = DateTime.now();
     DateTime? picked = await showDatePicker(
@@ -213,11 +200,9 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
                 child: const Text("Batal",
                     style: TextStyle(color: Colors.redAccent))),
             ElevatedButton(
-              style:
-                  ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
               onPressed: () async {
                 Navigator.pop(ctx);
-                // Panggil fungsi simpan ke Firestore
                 await _recordBorrowTransaction(book);
               },
               child: const Text("Konfirmasi"),
