@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cloud_firestore/cloud_firestore.dart'; // Import untuk Firestore
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -22,13 +22,12 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   late Timer _timer;
   String _currentTime = "";
-  String _userName = "Pengguna"; // Default name
-  String _greeting = "Halo"; // Default greeting
+  String _userName = "Pengguna";
+  String _greeting = "Halo";
 
   final PageController _pageController = PageController(viewportFraction: 0.7);
   int _currentPage = 0;
 
-  // List rekomendasi buku
   final List<String> recommendedBooks = [
     "Atomic Habits – James Clear",
     "How to Win Friends and Influence People – Dale Carnegie",
@@ -47,13 +46,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    // Panggil fungsi untuk ambil data user saat screen dimuat
-    _fetchUserData(); 
+    _fetchUserData();
     _updateTime();
     _timer =
         Timer.periodic(const Duration(seconds: 1), (timer) => _updateTime());
 
-    // Auto-scroll carousel setiap 3 detik
     _pageTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (_pageController.positions.isNotEmpty) {
         if (_currentPage < recommendedBooks.length - 1) {
@@ -70,10 +67,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  /// 🔹 Ambil data nama dari Firestore
   Future<void> _fetchUserData() async {
     final user = FirebaseAuth.instance.currentUser;
-    // Pastikan user sudah login
     if (user == null) return;
 
     try {
@@ -83,11 +78,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .get();
 
       if (docSnapshot.exists) {
-        // 💡 PERBAIKAN: Mengambil field 'nama' dari Firestore sesuai database Anda
         final nameFromDb = docSnapshot.data()?['nama'] as String?;
-        
         if (nameFromDb != null && nameFromDb.isNotEmpty) {
-          // Ambil kata pertama saja untuk sapaan
           final firstName = nameFromDb.split(' ').first;
           setState(() {
             _userName = firstName;
@@ -95,27 +87,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
         }
       }
     } catch (e) {
-      // Tampilkan error jika gagal fetching, tapi aplikasi tetap jalan
-      print("Error fetching user data: $e"); 
+      print("Error fetching user data: $e");
     }
-    // Update greeting setelah mencoba mendapatkan nama
     _setGreeting();
   }
 
-  /// 🔹 Menentukan sapaan berdasarkan waktu (Pagi, Siang, Sore, Malam)
   String _getGreetingText(int hour) {
-    if (hour >= 4 && hour < 11) {
-      return "Selamat Pagi";
-    } else if (hour >= 11 && hour < 15) {
-      return "Selamat Siang";
-    } else if (hour >= 15 && hour < 19) {
-      return "Selamat Sore";
-    } else {
-      return "Selamat Malam";
-    }
+    if (hour >= 4 && hour < 11) return "Selamat Pagi";
+    if (hour >= 11 && hour < 15) return "Selamat Siang";
+    if (hour >= 15 && hour < 19) return "Selamat Sore";
+    return "Selamat Malam";
   }
 
-  /// 🔹 Mengatur waktu dan sapaan
   void _setGreeting() {
     final now = DateTime.now();
     final hour = now.hour;
@@ -125,14 +108,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-
   void _updateTime() {
     final now = DateTime.now();
     final formattedTime = DateFormat('HH:mm:ss').format(now);
-    
-    // Panggil _setGreeting setiap detik untuk memastikan sapaan selalu akurat
-    _setGreeting(); 
-
+    _setGreeting();
     setState(() {
       _currentTime = formattedTime;
     });
@@ -148,12 +127,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final uid = user?.uid ?? '';
+    final email = user?.email ?? '';
+    final phone = user?.phoneNumber ?? '';
+
     return WillPopScope(
-      onWillPop: () async => false, // 🚫 Blokir tombol back HP
+      onWillPop: () async => false,
       child: Scaffold(
         backgroundColor: const Color(0xFF2C2C54),
         appBar: AppBar(
-          automaticallyImplyLeading: false, // 🚫 Hilangkan tombol back
+          automaticallyImplyLeading: false,
           backgroundColor: Colors.transparent,
           elevation: 0,
           centerTitle: true,
@@ -180,7 +164,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Jam realtime
               Align(
                 alignment: Alignment.centerRight,
                 child: Text(
@@ -192,9 +175,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 5), // Jarak antara jam dan sapaan
-
-              // 💡 Sapaan yang dipersonalisasi
+              const SizedBox(height: 5),
               Text(
                 "$_greeting, $_userName!",
                 style: const TextStyle(
@@ -204,8 +185,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(height: 15),
-
-              // Icon besar aplikasi
               const Center(
                 child: Icon(
                   Icons.menu_book_rounded,
@@ -214,8 +193,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-
-              // Carousel rekomendasi buku
               SizedBox(
                 height: 140,
                 child: PageView.builder(
@@ -233,12 +210,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
               const SizedBox(height: 25),
-
-              // Tombol sesuai desain
               Expanded(
                 child: Column(
                   children: [
-                    // Tombol besar
                     CustomButton(
                       text: "Ambil Buku",
                       backgroundColor: Colors.grey,
@@ -247,7 +221,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                              builder: (_) => const PickupBookScreen(userId: '', userName: '',)),
+                            builder: (_) => PickupBookScreen(
+                              userId: uid,
+                              userName: _userName,
+                            ),
+                          ),
                         );
                       },
                     ),
@@ -260,13 +238,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                              builder: (_) => const ReturnLockerScreen(userId: '', userName: '',)),
+                            builder: (_) => ReturnLockerScreen(
+                              userId: uid,
+                              userName: _userName,
+                            ),
+                          ),
                         );
                       },
                     ),
                     const SizedBox(height: 25),
-
-                    // Tombol kecil bawah
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
@@ -274,7 +254,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           context,
                           "Pinjam Buku",
                           Icons.menu_book,
-                          const BorrowBookScreen(userId: '', userName: '', userEmail: '', userPhone: '',),
+                          BorrowBookScreen(
+                            userId: uid,
+                            userName: _userName,
+                            userEmail: email,
+                            userPhone: phone,
+                          ),
                         ),
                         _smallMenuButton(
                           context,
@@ -336,8 +321,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _smallMenuButton(
-      BuildContext context, String title, IconData icon, Widget page) {
+  Widget _smallMenuButton(BuildContext context, String title, IconData icon, Widget page) {
     return GestureDetector(
       onTap: () {
         Navigator.push(context, MaterialPageRoute(builder: (_) => page));
