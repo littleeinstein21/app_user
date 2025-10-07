@@ -1,8 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import '../data/dummy_books.dart';
-
 class ReturnLockerScreen extends StatelessWidget {
   final String userId;
   final String userName;
@@ -13,89 +11,150 @@ class ReturnLockerScreen extends StatelessWidget {
     required this.userName,
   });
 
-  /// Fungsi untuk mencatat pengembalian buku ke Firestore
+  /// Fungsi untuk mengupdate status transaksi menjadi 'returned'
   Future<void> _recordReturnTransaction(
-      BuildContext context, Map<String, dynamic> book) async {
+      BuildContext context, String docId, String bookTitle) async {
     try {
       final firestore = FirebaseFirestore.instance;
 
-      await firestore.collection('borrows').add({
-        'userId': userId,
-        'userName': userName,
-        'bookTitle': book['title'],
-        'author': book['author'],
-        'returnDate': FieldValue.serverTimestamp(),
+      await firestore.collection('borrows').doc(docId).update({
         'status': 'returned',
         'actionType': 'RETURN',
-        'lockerId': 'LKR-01', // contoh ID loker
-        'createdAt': FieldValue.serverTimestamp(),
+        'returnDate': FieldValue.serverTimestamp(),
+        'lockerIdReturn': 'LKR-01',
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content:
-              Text("✅ Buku '${book['title']}' berhasil dikembalikan oleh $userName"),
-        ),
-      );
-
-      print("Return transaction recorded: $userName returned ${book['title']}");
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "✅ Buku '$bookTitle' berhasil dikembalikan oleh $userName",
+            ),
+          ),
+        );
+      }
     } catch (e) {
-      print("Error recording return transaction: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      debugPrint("Error recording return transaction: $e");
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
             content:
-                Text("Gagal mencatat pengembalian. Error: ${e.toString()}")),
-      );
+                Text("Gagal mencatat pengembalian. Error: ${e.toString()}"),
+          ),
+        );
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final firestore = FirebaseFirestore.instance;
+
     return Scaffold(
       backgroundColor: const Color(0xFF2C2C54),
       appBar: AppBar(
         title: const Text("Pengembalian Buku"),
         backgroundColor: Colors.transparent,
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: dummyBooks.length,
-        itemBuilder: (context, i) {
-          final book = dummyBooks[i];
-          return Dismissible(
-            key: Key(book['title']),
-            direction: DismissDirection.endToStart, // geser ke kiri untuk batal
-            background: Container(
-              color: Colors.red,
-              alignment: Alignment.centerRight,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: const Icon(Icons.cancel, color: Colors.white),
-            ),
-            onDismissed: (direction) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                    content: Text(
-                        "❌ Pengembalian buku '${book['title']}' dibatalkan")),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: firestore
+            .collection('borrows')
+            .where('userId', isEqualTo: userId)
+            .where('status', isEqualTo: 'picked_up')
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: Colors.amber),
+            );
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text(
+                "Tidak ada buku yang sedang Anda pinjam.",
+                style: TextStyle(color: Colors.white70, fontSize: 16),
+              ),
+            );
+          }
+
+          final docs = snapshot.data!.docs;
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: docs.length,
+            itemBuilder: (context, i) {
+              final doc = docs[i];
+              final data = doc.data() as Map<String, dynamic>;
+              final bookTitle = data['bookTitle'] ?? 'Judul Tidak Diketahui';
+
+              return Dismissible(
+                key: Key(doc.id),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  color: Colors.red,
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: const Icon(Icons.cancel, color: Colors.white),
+                ),
+                confirmDismiss: (direction) async {
+                  bool? confirm = await showDialog(
+                    context: context,
+                    builder: (ctx) => AlertDialog(
+                      title: const Text("Batalkan Pengembalian"),
+                      content: Text(
+                          "Apakah kamu yakin ingin membatalkan pengembalian buku '$bookTitle'?"),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, false),
+                          child: const Text("Tidak"),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, true),
+                          child: const Text("Ya"),
+                        ),
+                      ],
+                    ),
+                  );
+                  return confirm ?? false;
+                },
+                onDismissed: (_) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content:
+                          Text("❌ Pengembalian buku '$bookTitle' dibatalkan."),
+                    ),
+                  );
+                },
+                child: Card(
+                  color: const Color(0xFF464577),
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    title: Text(
+                      bookTitle,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      "Oleh ${data['author'] ?? 'Anonim'} | Pinjam di ${data['lockerId'] ?? 'LKR-??'}",
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                    trailing: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                      ),
+                      onPressed: () {
+                        _recordReturnTransaction(context, doc.id, bookTitle);
+                      },
+                      child: const Text("Kembalikan"),
+                    ),
+                  ),
+                ),
               );
             },
-            child: Card(
-              color: const Color(0xFF464577),
-              margin: const EdgeInsets.only(bottom: 10),
-              child: ListTile(
-                title: Text(book["title"],
-                    style: const TextStyle(
-                        color: Colors.white, fontWeight: FontWeight.bold)),
-                subtitle: Text("Oleh ${book["author"]}",
-                    style: const TextStyle(color: Colors.white70)),
-                trailing: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                  onPressed: () {
-                    _recordReturnTransaction(context, book);
-                  },
-                  child: const Text("Kembalikan"),
-                ),
-              ),
-            ),
           );
         },
       ),
