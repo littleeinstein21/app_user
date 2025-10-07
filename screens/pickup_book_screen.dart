@@ -55,6 +55,7 @@ class PickupBookScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text("Ambil Buku"),
         backgroundColor: Colors.transparent,
+        centerTitle: true,
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
@@ -63,18 +64,20 @@ class PickupBookScreen extends StatelessWidget {
             .where('status', isEqualTo: 'booked')
             .snapshots(),
         builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator(color: Colors.amber));
+          }
+
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(
+              child: Text(
+                "Tidak ada buku untuk diambil",
+                style: TextStyle(color: Colors.white),
+              ),
+            );
           }
 
           final docs = snapshot.data!.docs;
-
-          if (docs.isEmpty) {
-            return const Center(
-              child: Text("Tidak ada buku untuk diambil",
-                  style: TextStyle(color: Colors.white)),
-            );
-          }
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
@@ -86,12 +89,19 @@ class PickupBookScreen extends StatelessWidget {
               return Card(
                 color: const Color(0xFF464577),
                 margin: const EdgeInsets.only(bottom: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 child: ListTile(
-                  title: Text(data["bookTitle"] ?? "",
-                      style: const TextStyle(
-                          color: Colors.white, fontWeight: FontWeight.bold)),
+                  title: Text(
+                    data["bookTitle"] ?? "",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   subtitle: Text(
-                    "Oleh ${data["author"]} | Locker: ${data["lockerId"] ?? 'TBD'}",
+                    "Oleh ${data["author"]} | Locker: ${data["lockerId"] ?? 'Belum ditentukan'}",
                     style: const TextStyle(color: Colors.white70),
                   ),
                   trailing: Row(
@@ -99,7 +109,11 @@ class PickupBookScreen extends StatelessWidget {
                     children: [
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.amber),
+                          backgroundColor: Colors.amber,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
                         onPressed: () =>
                             _recordPickupTransaction(context, doc.id, data),
                         child: const Text("Ambil"),
@@ -107,7 +121,11 @@ class PickupBookScreen extends StatelessWidget {
                       const SizedBox(width: 8),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.redAccent),
+                          backgroundColor: Colors.redAccent,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
                         onPressed: () =>
                             _cancelPickupTransaction(context, doc.id, data),
                         child: const Text("Cancel"),
