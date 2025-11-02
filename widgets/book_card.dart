@@ -19,7 +19,7 @@ class BookCard extends StatelessWidget {
     final bool isAvailable = status == "Available";
 
     return Card(
-      color: isAvailable ? Colors.green[300] : Colors.red[300],
+      color: isAvailable ? const Color.fromARGB(255, 162, 160, 110) : Colors.red[300],
       child: ListTile(
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text(author),
