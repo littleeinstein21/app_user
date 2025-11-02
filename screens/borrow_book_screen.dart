@@ -1,8 +1,10 @@
+import 'dart:math';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import '../data/dummy_books.dart'; // <-- pastikan path benar
-import '../widgets/book_card.dart'; // <-- BookCard(title, author, status, onPressed)
+import '../data/dummy_books.dart';
+import '../widgets/book_card.dart';
 
 class BorrowBookScreen extends StatefulWidget {
   final String userId;
@@ -26,10 +28,41 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
   final TextEditingController searchController = TextEditingController();
   DateTime? selectedDate;
   String _searchQuery = "";
+  String? selectedLocation;
 
+  final Map<String, String> pickupLocations = {
+    "BINUS Bekasi": "https://share.google/qOkdAjDKDpX4WZKQL",
+    "BINUS Anggrek": "https://share.google/2ykbEiaCojOuXk57g",
+  };
+
+  // 🔹 Generate OTP 4 digit
+  String _generateOTP() {
+    final random = Random();
+    return (1000 + random.nextInt(9000)).toString();
+  }
+
+  // 🔹 Simpan transaksi peminjaman ke Firestore
   Future<void> _recordBorrowTransaction(Map<String, dynamic> book) async {
+    if (selectedLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("⚠️ Harap pilih lokasi pengambilan terlebih dahulu."),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
     try {
       final firestore = FirebaseFirestore.instance;
+      final otpCode = _generateOTP();
+
+      // Tentukan tanggal kadaluarsa OTP = min(5 menit, 1 hari dari tanggal peminjaman)
+      final DateTime now = DateTime.now();
+      final DateTime otpExpiry = (selectedDate ?? now).isAfter(now.add(const Duration(days: 1)))
+          ? now.add(const Duration(days: 1))
+          : (selectedDate ?? now);
+
       await firestore.collection('borrows').add({
         'userId': widget.userId,
         'userName': widget.userName,
@@ -37,10 +70,16 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
         'userPhone': widget.userPhone,
         'bookTitle': book['title'],
         'author': book['author'],
+        'isbn': book['isbn'],
         'borrowDate': Timestamp.fromDate(selectedDate ?? DateTime.now()),
         'status': 'booked',
         'actionType': 'BORROW_REQUEST',
         'lockerId': 'TBD',
+        'pickupLocation': selectedLocation,
+        'pickupMapLink': pickupLocations[selectedLocation],
+        'otp': otpCode,
+        'otpGeneratedAt': FieldValue.serverTimestamp(),
+        'otpExpiry': Timestamp.fromDate(otpExpiry.add(const Duration(minutes: 5))), // +5 menit aktif
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -67,9 +106,9 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
         .toList();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF2C2C54),
+      backgroundColor: const Color.fromARGB(255, 3, 92, 68),
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color.fromARGB(255, 3, 92, 68),
         title: const Text("Peminjaman Buku"),
         centerTitle: true,
       ),
@@ -85,45 +124,62 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
                 hintText: "Cari buku...",
                 hintStyle: const TextStyle(color: Colors.white54),
                 prefixIcon: const Icon(Icons.search, color: Colors.white),
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 filled: true,
                 fillColor: Colors.white10,
               ),
             ),
+            const SizedBox(height: 12),
+
+            DropdownButtonFormField<String>(
+              value: selectedLocation,
+              dropdownColor: const Color(0xFF035C44),
+              decoration: InputDecoration(
+                filled: true,
+                fillColor: Colors.white10,
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                labelText: "Pilih lokasi pengambilan",
+                labelStyle: const TextStyle(color: Colors.white),
+              ),
+              items: pickupLocations.keys.map((location) {
+                return DropdownMenuItem<String>(
+                  value: location,
+                  child: Text(location,
+                      style: const TextStyle(color: Colors.white)),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  selectedLocation = value;
+                });
+              },
+            ),
             const SizedBox(height: 16),
+
             Expanded(
               child: StreamBuilder<QuerySnapshot>(
                 stream: _getBorrowsStream(),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(
-                        child: CircularProgressIndicator(color: Colors.amber));
+                        child:
+                            CircularProgressIndicator(color: Colors.amber));
                   }
 
-                  if (snapshot.hasError) {
-                    return Center(
-                        child: Text("Error: ${snapshot.error}",
-                            style: const TextStyle(color: Colors.red)));
-                  }
-
-                  // Kumpulkan judul buku yang sedang dipinjam/dipesan
                   final unavailableTitles = <String>{};
                   if (snapshot.hasData) {
                     for (var doc in snapshot.data!.docs) {
                       final data = doc.data() as Map<String, dynamic>;
-                      final status = data['status'] as String?;
-                      final title = data['bookTitle'] as String?;
-
-                      if (title != null &&
-                          status != 'returned' &&
-                          status != 'cancelled') {
-                        unavailableTitles.add(title);
+                      if (data['bookTitle'] != null &&
+                          data['status'] != 'returned' &&
+                          data['status'] != 'cancelled') {
+                        unavailableTitles.add(data['bookTitle']);
                       }
                     }
                   }
 
-                  // Filter buku yang tersisa (tidak di-unavailableTitles)
                   final availableBooks = filteredBooks
                       .where((book) =>
                           !unavailableTitles.contains(book["title"]))
@@ -131,10 +187,8 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
 
                   if (availableBooks.isEmpty) {
                     return const Center(
-                      child: Text(
-                        "📚 Tidak ada buku yang tersedia saat ini.",
-                        style: TextStyle(color: Colors.white70),
-                      ),
+                      child: Text("📚 Tidak ada buku tersedia.",
+                          style: TextStyle(color: Colors.white70)),
                     );
                   }
 
@@ -166,20 +220,10 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
       initialDate: now.add(const Duration(days: 1)),
       firstDate: now,
       lastDate: now.add(const Duration(days: 30)),
-      builder: (context, child) {
-        return Theme(
-          data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: Color(0xFF464577),
-              onPrimary: Colors.white,
-              surface: Color(0xFF2C2C54),
-              onSurface: Colors.white,
-            ),
-            dialogBackgroundColor: const Color(0xFF2C2C54),
-          ),
-          child: child!,
-        );
-      },
+      builder: (context, child) => Theme(
+        data: ThemeData.dark(),
+        child: child!,
+      ),
     );
 
     if (picked != null) {
@@ -191,14 +235,17 @@ class _BorrowBookScreenState extends State<BorrowBookScreen> {
           title: const Text("Konfirmasi Peminjaman",
               style: TextStyle(color: Colors.white)),
           content: Text(
-              "Anda akan memesan buku \"${book['title']}\" (Oleh ${book['author']}). "
-              "Silakan ambil buku ini sebelum tanggal ${picked.day}/${picked.month}/${picked.year}.",
-              style: const TextStyle(color: Colors.white70)),
+            "Anda akan memesan buku \"${book['title']}\".\n"
+            "Lokasi: ${selectedLocation ?? '-'}\n"
+            "Ambil sebelum ${picked.day}/${picked.month}/${picked.year}.",
+            style: const TextStyle(color: Colors.white70),
+          ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("Batal",
-                    style: TextStyle(color: Colors.redAccent))),
+              onPressed: () => Navigator.pop(ctx),
+              child:
+                  const Text("Batal", style: TextStyle(color: Colors.redAccent)),
+            ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
               onPressed: () async {
